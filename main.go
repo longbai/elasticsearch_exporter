@@ -29,7 +29,7 @@ func login(c *http.Client, u, user, pwd string) {
 	b, _ := json.Marshal(m)
 	r, e := c.Post(u, "application/json", bytes.NewReader(b))
 	if e != nil {
-		fmt.Println("login failed", u, e, )
+		fmt.Println("login failed", u, e)
 		return
 	}
 	if r.StatusCode != http.StatusOK {
