@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/signal"
@@ -17,9 +21,38 @@ import (
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
+func login(c *http.Client, u, user, pwd string) {
+	m := map[string]string{
+		"username": user,
+		"password": pwd,
+	}
+	b, _ := json.Marshal(m)
+	r, e := c.Post(u, "application/json", bytes.NewReader(b))
+	if e != nil {
+		fmt.Println("login failed", u, e, )
+		return
+	}
+	if r.StatusCode != http.StatusOK {
+		fmt.Println(u, r.StatusCode, r.Status)
+		return
+	}
+	if r != nil && r.Body != nil {
+		r.Body.Close()
+	}
+	time.AfterFunc(24*time.Hour, func() {
+		login(c, u, user, pwd)
+	})
+}
+
 func main() {
 	var (
-		Name          = "elasticsearch_exporter"
+		Name = "elasticsearch_exporter"
+		user = kingpin.Flag("user",
+			"user for login").
+			Default("user").Envar("USER").String()
+		pwd = kingpin.Flag("pwd",
+			"pwd for login").
+			Default("null").Envar("PWD").String()
 		listenAddress = kingpin.Flag("web.listen-address",
 			"Address to listen on for web interface and telemetry.").
 			Default(":9114").Envar("WEB_LISTEN_ADDRESS").String()
@@ -56,18 +89,18 @@ func main() {
 		esClusterInfoInterval = kingpin.Flag("es.clusterinfo.interval",
 			"Cluster info update interval for the cluster label").
 			Default("5m").Envar("ES_CLUSTERINFO_INTERVAL").Duration()
-		esCA = kingpin.Flag("es.ca",
-			"Path to PEM file that contains trusted Certificate Authorities for the Elasticsearch connection.").
-			Default("").Envar("ES_CA").String()
-		esClientPrivateKey = kingpin.Flag("es.client-private-key",
-			"Path to PEM file that contains the private key for client auth when connecting to Elasticsearch.").
-			Default("").Envar("ES_CLIENT_PRIVATE_KEY").String()
-		esClientCert = kingpin.Flag("es.client-cert",
-			"Path to PEM file that contains the corresponding cert for the private key to connect to Elasticsearch.").
-			Default("").Envar("ES_CLIENT_CERT").String()
-		esInsecureSkipVerify = kingpin.Flag("es.ssl-skip-verify",
-			"Skip SSL verification when connecting to Elasticsearch.").
-			Default("false").Envar("ES_SSL_SKIP_VERIFY").Bool()
+		//esCA = kingpin.Flag("es.ca",
+		//	"Path to PEM file that contains trusted Certificate Authorities for the Elasticsearch connection.").
+		//	Default("").Envar("ES_CA").String()
+		//esClientPrivateKey = kingpin.Flag("es.client-private-key",
+		//	"Path to PEM file that contains the private key for client auth when connecting to Elasticsearch.").
+		//	Default("").Envar("ES_CLIENT_PRIVATE_KEY").String()
+		//esClientCert = kingpin.Flag("es.client-cert",
+		//	"Path to PEM file that contains the corresponding cert for the private key to connect to Elasticsearch.").
+		//	Default("").Envar("ES_CLIENT_CERT").String()
+		//esInsecureSkipVerify = kingpin.Flag("es.ssl-skip-verify",
+		//	"Skip SSL verification when connecting to Elasticsearch.").
+		//	Default("false").Envar("ES_SSL_SKIP_VERIFY").Bool()
 		logLevel = kingpin.Flag("log.level",
 			"Sets the loglevel. Valid levels are debug, info, warn, error").
 			Default("info").Envar("LOG_LEVEL").String()
@@ -85,7 +118,7 @@ func main() {
 
 	logger := getLogger(*logLevel, *logOutput, *logFormat)
 
-	esURL, err := url.Parse(*esURI)
+	esURL, err := url.Parse(*esURI + "/api/v1/admin/internal")
 	if err != nil {
 		_ = level.Error(logger).Log(
 			"msg", "failed to parse es.uri",
@@ -95,16 +128,17 @@ func main() {
 	}
 
 	// returns nil if not provided and falls back to simple TCP.
-	tlsConfig := createTLSConfig(*esCA, *esClientCert, *esClientPrivateKey, *esInsecureSkipVerify)
-
+	//tlsConfig := createTLSConfig(*esCA, *esClientCert, *esClientPrivateKey, *esInsecureSkipVerify)
+	j, _ := cookiejar.New(nil)
 	httpClient := &http.Client{
 		Timeout: *esTimeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-			Proxy:           http.ProxyFromEnvironment,
-		},
+		//Transport: &http.Transport{
+		//	TLSClientConfig: tlsConfig,
+		//	Proxy:           http.ProxyFromEnvironment,
+		//},
+		Jar: j,
 	}
-
+	login(httpClient, *esURI+"/api/v1/login", *user, *pwd)
 	// version metric
 	versionMetric := version.NewCollector(Name)
 	prometheus.MustRegister(versionMetric)
